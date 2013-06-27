@@ -28,7 +28,7 @@ Click <strong>Assemble</strong> then <strong>Run</strong> to assemble and run th
     <input type="button" value="Notes" class="notesButton">
   </div>
 
-  <textarea class="code">
+  <textarea class="code" id="code">
   </textarea>
 </div>
 
@@ -89,8 +89,13 @@ $f: Light grey
     <script src="./javascripts/jquery.min.js"></script>
     <script src="./simulator/es5-shim.js"></script>
     <script src="./simulator/assembler.js"></script>
+   
     <script src="./simulator/scale.fix.js"></script>
-
-  
+<script>
+$.get('programs/set.6502e', function(data) {
+  $('#code').html(data);
+  alert('Load was performed.');
+});
+  </script>
 
 </body></html>

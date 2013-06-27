@@ -11,6 +11,7 @@
 
 
 function SimulatorWidget(node) {
+  var multiExecuteInterval = 15; // ms between batches
   var $node = $(node);
   var ui = UI();
   var display = Display();
@@ -489,6 +490,15 @@ function SimulatorWidget(node) {
       regA = tmp & 0xff;
       setNVflagsForRegA();
     }
+    
+    function sleep(log2millis) {
+      clearInterval(executeId);
+      // delay, and then restart.
+      setTimeout(
+  	  	function() { if (!debug) { executeId = setInterval(multiExecute, multiExecuteInterval); }},
+  	  	1 << log2millis);
+      return true; // endMultiExecutre
+		}
 
     var instructions = {
       i00: function () {
@@ -1388,6 +1398,16 @@ function SimulatorWidget(node) {
       iea: function () {
         //NOP
       },
+      ifa: function () {
+        //SLP : sleep, immediate (log 2 of milliseconds)
+        var value = popByte(); 
+        return sleep(value);
+      },
+      ifb: function () {
+        //SLP : sleep, zeropage (log 2 of millisecond)
+        var value = memory.get(popByte()); 
+        return sleep(value);
+      },
 
       iec: function () {
         var value = memory.get(popWord());
@@ -1502,7 +1522,7 @@ function SimulatorWidget(node) {
       } else {
         ui.play();
         codeRunning = true;
-        executeId = setInterval(multiExecute, 15);
+        executeId = setInterval(multiExecute, multiExecuteInterval);
       }
     }
 
@@ -1511,7 +1531,9 @@ function SimulatorWidget(node) {
         // use a prime number of iterations to avoid aliasing effects
 
         for (var w = 0; w < 97; w++) {
-          execute();
+          if (execute()) {
+						break;
+          }
         }
       }
       updateDebugInfo();
@@ -1526,10 +1548,11 @@ function SimulatorWidget(node) {
       var instruction = instructions['i' + instructionName];
 
       if (instruction) {
-        instruction();
+        endMultiExecute = instruction();
       } else {
         instructions.ierr();
       }
+      return endMultiExecute;
     }
 
     // execute() - Executes one instruction.
@@ -1538,13 +1561,14 @@ function SimulatorWidget(node) {
       if (!codeRunning && !debugging) { return; }
 
       setRandomByte();
-      executeNextInstruction();
+      var endMultiExecute = executeNextInstruction();
 
       if ((regPC === 0) || (!codeRunning && !debugging)) {
         stop();
         message("Program end at PC=$" + addr2hex(regPC - 1));
         ui.stop();
       }
+      return endMultiExecute;
     }
 
     function setRandomByte() {
@@ -1794,6 +1818,8 @@ function SimulatorWidget(node) {
       ["LDY", 0xa0, 0xa4, 0xb4, null, 0xac, 0xbc, null, null, null, null, null, null],
       ["LSR", null, 0x46, 0x56, null, 0x4e, 0x5e, null, null, null, null, 0x4a, null],
       ["NOP", null, null, null, null, null, null, null, null, null, null, 0xea, null],
+// michaelroger: extension to support sleeping with idle CPU
+      ["SLP", 0xfa, 0xfb, null, null, null, null, null, null, null, null, null, null],
       ["ORA", 0x09, 0x05, 0x15, null, 0x0d, 0x1d, 0x19, null, 0x01, 0x11, null, null],
       ["TAX", null, null, null, null, null, null, null, null, null, null, 0xaa, null],
       ["TXA", null, null, null, null, null, null, null, null, null, null, 0x8a, null],
