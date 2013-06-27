@@ -94,8 +94,10 @@ $f: Light grey
 <script>
   console.log("Loading program file");
   $.get('programs/set.6502e', function(data) {
-  $('#code').html(data);
+  $('textarea#code').val(data); // need 'val' for content of textarea tag.
   console.log("Loaded " + data.length + " chars.");
+  // Compile Program.
+  $(".assembleButton").click();
 });
 </script>
 
