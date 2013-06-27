@@ -41,11 +41,35 @@
   float: left;
 }
 
+.topRow {
+  margin-top: 30px;
+}
+
 .screen {
-  float: right;
+  margin-left: auto ;
+  margin-right: auto ;
+  width: 320px;
   padding-top: 16px;
   padding-left: 18px;
   padding-bottom: 18px;
+}
+
+.sideOfScreen {
+  width: 380px;
+  float: right;
+  font-size: 16px;
+    padding-top: 16px;
+  padding-left: 18px;
+  padding-bottom: 18px;
+    margin-left: auto ;
+  margin-right: auto ;
+}
+
+
+.nerdbar {
+  clear:both;
+  margin-top: 95px;
+  margin-bottom: 95px; 
 }
 
 .debugger {

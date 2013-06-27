@@ -15,9 +15,27 @@
   </head>
   <body>
     <div class="wrapper">
-Click <strong>Assemble</strong> then <strong>Run</strong> to assemble and run the snippet of assembly language.</p>
 
 <div class="widget">
+<div class="topRow">
+ <canvas class="screen" width="160" height="160"></canvas>
+ <div class="sideOfScreen">
+   <h2>SET-6502</h2>
+   <div id="welcome">Use WASD keys to move up/left/down/right.
+   <br/>Press 'X' to select a card.
+   <br/>Select 3 cards that are a matched Set:
+   <br/>&nbsp;&nbsp;For each of the 4 pixels, 
+<br/>&nbsp;&nbsp;&nbsp;&nbsp;the 3 cards must be all the same color in that pixel,
+ <br/>&nbsp;&nbsp;&nbsp;&nbsp; or all 3 different colors in that pixel.</div>
+  </div>
+</div>
+
+<div class="nerdbar"></div>
+
+<hr>
+<span style="clear:both; margin:auto">Programmers' Area</span>
+<div class="nerdbar"></div>
+
 <div class=codearea>
   <div class="buttons">
     <input type="button" value="Assemble" class="assembleButton" disabled="disabled">
@@ -33,7 +51,6 @@ Click <strong>Assemble</strong> then <strong>Run</strong> to assemble and run th
 </div>
 
 <div class=sidepanel>
-  <canvas class="screen" width="160" height="160"></canvas>
   <div class="debugger">
     <input type="checkbox" class="debug" name="debug">
     <label for="debug">Debugger</label>
