@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<!-- saved from url=(0047)http://skilldrick.github.io/easy6502/#registers -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta property="twitter:account_id" content="17736965">
+    <title>Easy 6502 by skilldrick</title>
+
+    <link rel="stylesheet" href="6502_files/stylesheets/styles.css">
+    <link rel="stylesheet" href="6502_files/simulator/style.css">
+    <link rel="stylesheet" href="6502_files/stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+  </head>
+  <body>
+    <div class="wrapper">
+Click <strong>Assemble</strong> then <strong>Run</strong> to assemble and run the snippet of assembly language.</p>
+
+<div class="widget">
+<div class=codearea>
+  <div class="buttons">
+    <input type="button" value="Assemble" class="assembleButton" disabled="disabled">
+    <input type="button" value="Run" class="runButton">
+    <input type="button" value="Reset" class="resetButton">
+    <input type="button" value="Hexdump" class="hexdumpButton">
+    <input type="button" value="Disassemble" class="disassembleButton">
+    <input type="button" value="Notes" class="notesButton">
+  </div>
+
+  <textarea class="code">
+  </textarea>
+</div>
+
+<div class=sidepanel>
+  <canvas class="screen" width="160" height="160"></canvas>
+  <div class="debugger">
+    <input type="checkbox" class="debug" name="debug">
+    <label for="debug">Debugger</label>
+    <div class="minidebugger">A=$00 X=$00 Y=$00<br>SP=$fb PC=$06ee<br>NV-BDIZC<br>00110010</div>
+    <div class="buttons">
+      <input type="button" value="Step" class="stepButton" disabled="disabled">
+      <input type="button" value="Jump to..." class="gotoButton" disabled="disabled">
+    </div>
+  </div>
+
+  <div class="monitorControls">
+    <label for="monitoring">Monitor</label>
+    <input type="checkbox" class="monitoring" name="monitoring">
+
+    <label for="start">Start: $</label>
+    <input type="text" value="0" class="start" name="start">
+    <label for="length">Length: $</label>
+    <input type="text" value="ff" class="length" name="length">
+  </div>
+
+  <div class="monitor"><pre><code></code></pre></div>
+  <div class="messages"><pre><code>Indexing labels..
+</code></pre></div>
+
+  <div class="notes" style="display: none">Notes:
+
+Memory location $fe contains a new random byte on every instruction.
+Memory location $ff contains the ascii code of the last key pressed.
+
+Memory locations $200 to $5ff map to the screen pixels. Different values will
+draw different colour pixels. The colours are:
+
+$0: Black
+$1: White
+$2: Red
+$3: Cyan
+$4: Purple
+$5: Green
+$6: Blue
+$7: Yellow
+$8: Orange
+$9: Brown
+$a: Light red
+$b: Dark grey
+$c: Grey
+$d: Light green
+$e: Light blue
+$f: Light grey
+    </div>
+</div>
+</div>
+
+    <script src="./6502_files/jquery.min.js"></script>
+    <script src="./6502_files/es5-shim.js"></script>
+    <script src="./6502_files/assembler.js"></script>
+    <script src="./6502_files/scale.fix.js"></script>
+    <script type="text/javascript">
+      var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+      document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+    </script><script src="./6502_files/ga.js" type="text/javascript"></script>
+    <script type="text/javascript">
+      try {
+        var pageTracker = _gat._getTracker("UA-3174668-13");
+      pageTracker._trackPageview();
+      } catch(err) {}
+    </script>
+  
+
+</body></html>
