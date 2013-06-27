@@ -1,0 +1,1050 @@
+; Because you always wanted to play SET game demo in your browser,
+; emulating a classic 6502 video game system
+;  with graphics power of the Atari 1300
+
+; TO PLAY: 
+; Browse to  [TODO: need URL of version that supports sleep!]
+; copy-paste this entire post into the textarea
+; Click Assemble, 
+; Click Run
+
+; Like SET, each card (line segment) has four attrbutes,
+; displayed as pixels 0,1,2 and 3.
+; Each attribute can have one of 3 values (colors).
+; Find a set of 3 cards that have for each attribute (pixel), 
+; all the all the same value (color) or all 3 different values (colors)
+
+; The game is not fully playable (yet....). 
+; You can move the green cursor with WASD (pseudo-arrow) keys,
+; and press 'X' to select/deselect a card
+; When you find a set, select the three cards.
+; If you are correct, a score bar on the right-margin will grow,  
+;    and the cards will be removed from the screen.
+; If you are incorrect, the lower-right-corner will flash pink.
+;
+; After you find a Set, you can select more cards,
+; or,
+; For a new random shuffle and deal
+; Click Reset, then Click Run,
+;
+; TODO: remove matched sets from the board, deal *random* new ones 
+;
+
+
+; PROGRAM BEGINS HERE
+
+; globals: 
+; display $0200
+; frame registers (for passing parameters to functions) $0 .. $09
+; deck   $10 .. $60
+; display page (since only ff of display can be addressed at once) $70 (LO) $71 (HI)    $72 (workaround bit)
+; $80 (LO) $81 (HI)  input cursor position; $82/$83 is 'next' position, used for moving cursor
+; $90: counter of number of cards selected
+; $91/92 $93/94 $95/96 - positions of markers (actually, the corresponding cursor position is stored)
+; $97 count of number of SETs found.
+; $c0; num cards to shuffle at start of game
+; stack: $100 .. $1ff
+; B   $1
+; TQ  $2
+; random byte $fe
+; ascii code of last keypress $ff
+; TODO: refactor functions to use frame registers + stack, instead of reserves globals.
+
+main: 
+  LDA #12  ; DO NOT SUBMIT: should be at least #12
+  STA $c0; num cards to shuffle
+  ; jsr test_divide
+  ;jsr test_unpack_card
+  ; jmp exit
+  jsr build_deck
+  jsr print_deck  
+  jsr init_input_cursor
+  loop:
+    jsr handle_keypress
+    LDA #0
+    BEQ loop
+  jmp exit
+
+init_input_cursor:
+ ; 2nd row, 3rd pixel, slightly to the left of the first card in "fancy" mode
+ LDA #$22
+ STA $80
+ LDA #2
+ STA $81
+jsr  draw_cursor 
+RTS
+
+move_cursor:
+ jsr blank_cursor
+ LDA $82
+ STA $80
+ LDA $83
+ STA $81
+ jsr draw_cursor
+RTS
+
+toggle_marker:
+ ; if marker is in invalid location, don't toggle
+ LDY #2 ; HACK - pixel is 7 pixels to the right of the cursor
+ LDA ($80),Y
+ CMP #0
+ BNE toggle_marker_proceed
+  RTS
+ toggle_marker_proceed:
+
+
+ LDY #7 ; HACK - marker is 7 pixels to the right of the cursor
+ LDA ($80),Y
+ CMP #0 ;  require either already selected... (=> deselect).
+        ;   (test by comparing color to black)
+ BNE toggle_marker_ok
+    LDA $90 ; or require <3 card already selected.
+    CMP #3 
+    BMI toggle_marker_ok
+       LDA #$f ; flip grey than black
+       STA ($80),Y
+       SLP #9 ; half-second
+       LDA #$0 ;
+       STA ($80),Y
+       RTS
+
+  toggle_marker_ok:
+  LDA ($80),Y ; reload marker pixel
+  EOR #$1 ; flip black/white
+  STA ($80),Y
+  CMP #0 ; need to directly follow operation on A
+
+  BEQ marker_removed
+    ; marker added
+
+  ; record marker position in marker buffer
+  ; find first available (==0) marker buffer slot
+  LDX #0    ; X is offset from $91
+
+  LDA $91
+  ; if low byte is 0, slot is available
+  ; this works because cursor is NEVER in first column.
+  BEQ marker_found_empty_slot  
+    LDX #2
+    LDA $93
+  BEQ marker_found_empty_slot
+    LDX #4
+    LDA $95 ; else, third slot must be free.
+    
+  marker_found_empty_slot:
+    LDA $80
+    STA $91, X  ; store in position 91, 93, or 95
+    LDA $81
+    STA $92, X
+
+    INC $90   ; update marker counter
+    jmp end_marker_selected_counter
+  marker_removed:
+    ; find this marker's buffer slot; both bytes of position must match
+    LDX #0    ; X is offset from $91
+    LDA $91
+    SEC ; set carry bit, to make subtraction work (?!)
+    SBC $80
+    STA $1
+    LDA $92
+    SEC ; set carry bit, to make subtraction work (?!)
+    SBC $81
+    ORA $1   ; inclusive-or, because subtraction returns 0 for match.
+      BEQ marker_found_its_slot   ; 0 ior 0 == 0  is match
+    LDX #2    
+    LDA $93
+    SEC ; set carry bit, to make subtraction work (?!)
+    SBC $80
+    STA $1
+    LDA $94
+    SEC ; set carry bit, to make subtraction work (?!)
+    SBC $81
+    ORA $1   ; inclusive-or, because comparison returns 0 for match.
+      BEQ marker_found_its_slot   ; 0 ior 0 == 0  is match
+    LDX #4    
+    LDA $95
+    SEC ; set carry bit, to make subtraction work (?!)
+    SBC $80
+    STA $1
+    LDA $96
+    SEC ; set carry bit, to make subtraction work (?!)
+    SBC $81
+    ORA $1   ; inclusive-or, because comparison returns 0 for match.
+      BEQ marker_found_its_slot   ; 0 ior 0 == 0  is match
+
+    marker_found_its_slot:
+    LDA #0   ; erase marker info
+    STA $91, X  ; store in position 91, 93, or 95
+    STA $92, X
+
+    DEC $90   ; update marker counter
+
+    ; need to clear out the buffer for this marker
+  end_marker_selected_counter:
+  LDA $90  ; If 3 cards are selected, check for set.
+  CMP #3
+  BNE toggle_marker_end
+    jsr check_for_set
+  toggle_marker_end:
+RTS
+
+check_pair_1:
+   LDX 0
+   CLC
+   LDA #1    ; initialize comparison result
+   STA 1
+ 
+   CLC
+   LDA $91
+   ADC #2 ; move from cursor to pixel block
+   ADC 9 ; move from cursor to pixel of interest
+   STA 4
+   LDA $92
+   STA 5
+   LDA ($4, X)
+   STA 6
+
+   CLC
+   LDA $93
+   ADC #2 ; move from cursor to pixel block
+   ADC 9 ; move from cursor to pixel of interest
+   STA 4
+   LDA $94
+   STA 5
+   LDA ($4, X)
+   STA 7
+RTS
+
+check_pair_2:
+  LDA #1    ; initialize comparison result
+   STA $2
+
+   CLC
+   LDA $93
+   ADC #2 ; move from cursor to pixel block
+   ADC 9 ; move from cursor to pixel of interest
+   STA $b4
+   LDA $94
+   STA $b5
+   LDA ($4, X)
+   STA $b6
+
+   CLC
+   LDA $95
+   ADC #2 ; move from cursor to pixel block
+   ADC $9 ; move from cursor to pixel of interest
+   STA $c4
+   LDA $96
+   STA $c5
+   LDA ($c4, X)
+   STA $7
+RTS
+
+check_pair_3:
+  LDA #1    ; initialize comparison result
+   STA 3
+
+   CLC
+   LDA $95
+   ADC #2 ; move from cursor to pixel block
+   ADC $9 ; move from cursor to pixel of interest
+   STA 4
+   LDA $96
+   STA 5
+   LDA ($4, X)
+   STA 6
+
+   CLC
+   LDA $91
+   ADC #2 ; move from cursor to pixel block
+   ADC 9 ; move from cursor to pixel of interest
+   STA 4
+   LDA $92
+   STA 5
+   LDA ($4, X)
+   STA 7
+RTS
+
+check_for_set:
+ ; TODO: read the marker buffer addresses,
+ ; and compare the 4 sets of pixels, for all equal or all different.
+ LDA 0
+ STA $9 ; $9 is pixel loop variable
+ check_for_set_pixel:
+   ; collect pairwise comparisons
+   
+   ; sets A,7
+   jsr check_pair_1
+   LDA 7
+   CMP 6
+   
+   BNE first_pair_differ ; truncate >0 to 1
+    inc $99
+    INC 1
+   first_pair_differ:
+    DEC 1
+   
+   ; next pair of cards
+   jsr check_pair_2
+   LDA 7
+   CMP 6
+
+   BNE second_pair_differ ; truncate >0 to 1
+     inc $9a
+     INC 2
+   second_pair_differ:
+    DEC 2
+
+   ; third pair of cards
+   jsr check_pair_3
+   LDA 7
+   CMP 6
+
+   BNE third_pair_differ ; truncate >0 to 1
+     inc $9b
+     INC 3
+   third_pair_differ:
+    DEC 3
+
+   ; test that the 3 comparisons are the same
+   CLC
+   LDA $1
+   CMP $2
+   BNE check_for_set_nope
+
+   CMP $3
+   BNE check_for_set_nope
+
+   ; match! check next pixel
+   INC $9
+   LDA $9
+   CMP #4
+ 
+  BMI check_for_set_pixel
+
+   ; SET!
+   INC $97 ; increment SET counter
+
+   ; display visual token of set along right-side column
+   LDA $97
+   TAX
+   LDA #$ff ;  "before" top-right corner
+   set_printer_countdown:     
+     DEX     
+     CLC; 
+     ADC #$20 ; add 1 column
+     CLC; todo handle carry as a page-increment
+     CPX #0
+     BNE set_printer_countdown
+   ;; TODO: adjust zero-page if we ever allow finding more than 8 SETs
+   ;;   when you do, handle properly the case of the cursor starting
+   ;; on page "-1", not a valid page.
+
+   TAX
+   LDA #15 ; some color
+   STA $200, X
+   jsr trash_marked_cards 
+   RTS
+  
+   check_for_set_nope:
+   INC $98 ; increment non-SET counter
+
+ ; flash warning in lower-right corner
+       LDY 0
+       LDA #$ff
+       STA $1
+       LDA #$5
+       STA $2
+       LDA #$a ; flip grey than black       
+       STA ($1),Y
+       DEC 1
+       STA ($1),Y
+       SLP #10 ; 1 sec
+       LDA #$ff
+       STA $1
+       LDA #$0 ;
+       STA ($1),Y
+       DEC 1
+       STA ($1),Y
+
+RTS
+
+trash_marked_cards:
+  LDA #0
+  STA 1
+ 
+  trash_marked_cards_next:
+  LDA 1
+  ASL ; x2 for offset  
+  TAX
+  LDA $91, X
+  STA 2
+  LDA $92, X
+  STA 3
+
+
+     LDA #2
+     STA $4
+     trash_pixel_next:
+ 
+       LDA $2 ; get address of card's cursor
+       STA $5
+       LDA $3
+       STA $6
+
+       LDA $4
+       TAY 
+       LDA #0 
+       STA ($5), Y ; clear pixel at address (pixel offset, from pixel's cursor)   
+                 
+
+       INC $4
+       LDA $4
+       CMP #8  ; pixels offset 2-8 need to be clear
+       BNE trash_pixel_next  
+   
+     ; clear marker-buffer
+     LDA 1
+     ASL
+     TAX
+     LDA #0
+     STA $91, X
+     STA $92, X
+     DEC $90 ; dec #selected cards
+
+  INC 1
+  LDA 1
+  CMP #3
+  BNE trash_marked_cards_next  
+RTS
+
+blank_cursor:
+ LDA 0
+ LDX 0
+ STA ($80,X) ; why is ,X required, even if I don't want it?
+RTS
+
+draw_cursor:
+ LDA #$05 ; green
+ LDX 0
+ STA ($80,X) ; why is ,X required, even if I don't want it?
+RTS
+
+handle_keypress:
+  SLP #8 ; quarter-second pause, to cool CPU
+  jsr handle_last_keypress
+RTS
+
+get_cursor_row:  
+   ; writes row number (0-$1f) of cursor to 1
+   ;  compute 5 high bits of position (row)
+   ; 1 is also used internally to accumulate bits
+   LDA $81 ; 2 hi bits from page byte 
+   SBC #1   ; remove offset-from-2
+   SBC #1
+   ASL  ; move into hi bits position
+   ASL
+   ASL
+   STA 1
+  
+   LDA $80
+   ROR    ; 3 high bits, moved to LO bit
+   ROR   
+   ROR   
+   ROR   
+   ROR   
+   AND #$07
+   ORA 1 
+   STA 1
+RTS
+
+handle_last_keypress:
+ ; $84 for temporarily stashing cursor during function calls.
+  LDA $81
+  STA $83 
+  LDA $ff ; keyboard
+  ; to start, assume move will not change drawing page.
+  ; drawing page will be changed when needed.
+  ; if nothing happened, go back to look for next press,
+  ; instead of wasting time doing work (and ignoring keypresses)
+  BEQ keypress_handled
+  ORA #$20 ; lowercase input character, for user-friendliness
+  cmp #$77
+  beq upKey
+  cmp #$64
+  beq rightKey
+  cmp #$73
+  beq downKey
+  cmp #$61
+  beq leftKey
+  cmp #$78; x  (since space bar doesn't work in browser)
+  beq markerKey 
+  jmp keypress_handled
+
+  markerKey: ; toggle marker
+    jsr toggle_marker
+  jmp keypress_handled
+
+
+  leftKey:
+  LDA $80
+   STA $84  ; check low 5 bits of new position == column.
+   AND #$1f
+   CMP #$08  
+   BPL leftKey_0    ; too far left
+     jmp keypress_handled
+   leftKey_0:
+   LDA $84  ; restore
+   SBC #$8
+   STA $82
+   jsr move_cursor 
+  jmp keypress_handled
+
+  rightKey:
+  LDA $80
+   ADC #$7 ;  off-by-one bug in VM adder??
+   TAX      ; check low 5 bits of new position == column.
+   AND #$1f
+   CMP #$16
+   BMI rightKey_0
+     jmp keypress_handled
+   rightKey_0:
+   TXA  ; restore
+   STA $82
+   jsr move_cursor 
+  jmp keypress_handled
+
+  keypress_handled:
+   LDA #0
+   STA $ff ; keyboard
+RTS
+
+ upKey:
+   jsr get_cursor_row
+   LDA $1
+   CMP #$04  
+   BPL upkey_1    ; too far up
+     jmp keypress_handled
+   upkey_1:
+   LDA $80
+   STA $84  
+   CLC
+   SBC #$bf 
+   BCS upkey_0
+     jsr dec_display_page_cursor
+   upkey_0:
+   LDA $84
+   CLC
+   SBC #$bf  ;redo after variable mucked
+   STA $82
+   jsr move_cursor
+jmp keypress_handled
+ 
+downKey:
+   jsr get_cursor_row
+   LDA $1
+   CMP #$1a  
+   BMI downKey_1    ; too far
+      jmp keypress_handled
+   downKey_1:
+   LDA $80
+   STA $84
+   CLC
+   ADC #$c0  
+   BCC downKey_0
+     jsr inc_display_page_cursor
+   downKey_0:
+   LDA $84
+   CLC
+   ADC #$c0 ; redo after variable mucked
+   STA $82
+   jsr move_cursor 
+ jmp keypress_handled
+ 
+
+
+test_divide:
+   LDA #8
+   STA $2
+   LDA #3
+   STA $1
+   jsr divide
+RTS 
+
+divide:
+; 8-bit / 8-bit = 8-bit quotient, 8-bit remainder (unsigned)
+; http://6502org.wikidot.com/software-math-intdiv
+; Inputs:
+;   $2 = 8-bit numerator
+;   $1 = 8-bit denominator
+; Outputs:
+;  $2 = 8-bit quotient of TQ / B
+;  accumulator, $1 = remainder of TQ / B
+   LDA #0
+   LDX #8
+   ASL $2
+L1: 
+   ROL
+   CMP $1
+   BCC L2
+   SBC $1
+L2:
+   ROL $2
+   DEX
+   BNE L1
+   STA $1
+RTS
+
+unpack_card:  ; reads $3 as packed (0-80) card,
+ ; writes $4 as unpacked card (3 values per 2-bits).
+ ; x mod 3 + 4*(x/3) mod 3  + 16* x/9 mod 3 + 62 * x/27 mod 3
+
+   LDA #0   ; initialize return value
+   STA $4
+
+   ; packed-card mod 3
+   LDA $3  ; load input
+
+   STA $2  ; numerator $2 = packed card
+   LDA #3  ; denominator $1 = 3
+   STA $1
+   jsr divide
+   ; $2 has quotient, $1 remainder
+
+   ; add remainder to return value  $4, for attr 1
+   LDA $4
+   ADC $1
+   STA $4
+
+   ; 2nd attr
+   LDA #3  ; set denominator back to 3
+   STA $1
+   jsr divide ; recursing quotient as numerator
+   LDA $1 ; remainer, shifted 2 bits ...
+   ASL
+   ASL
+
+   ADC $4 ; add back to output
+   STA $4
+
+   ; 3rd attr
+   LDA #3  ; set denominator back to 3
+   STA $1
+   jsr divide ; recursing quotient as numerator
+   LDA $1 ; remainer, shifted 4 bits ...
+   ASL
+   ASL
+   ASL
+   ASL
+
+   ADC $4 ; add back to output
+   STA $4
+
+   ; 3rd attr
+   LDA #3  ; set denominator back to 3
+   STA $1
+   jsr divide ; recursing quotient as numerator
+   LDA $1 ; remainer, shifted 6 bits ...
+   ASL
+   ASL
+   ASL
+   ASL
+   ASL
+   ASL
+
+   ADC $4 ; add back to output
+   STA $4
+
+RTS
+
+test_unpack_card:
+  LDA #80
+  STA $3 
+  jsr unpack_card
+  LDA $4
+  STA $0
+  STA $200
+RTS
+
+
+build_deck:
+  ; X is index into deck, also 'packed' card id (since we haven't shuffled yet)
+  ; unpacked card state is built into Y,
+  ; then stored.
+  LDX #$00  ;
+  each_card:
+    TXA    ; card id (== card state) -> A
+    ;; UNPACK CARD here, if you want to pre-unpacl card
+
+    STA $10,X    ; 10[X] = A  #10 is deck zero page
+
+    INX    ; X++
+    CPX #81
+  BNE each_card
+ 
+  ;; shuffle
+  LDA #0
+  STA $62 ; $62 stores loop counter for shuffle
+  swap_cards: 
+    ; for $62 = 0 to n, pick a random card, swap it with i
+    ; via slot $10+$51. (not a perfectly fair shuffle,
+    ; since we aren't limiting pick to cards >= $62)
+    ; $62, $63 store indices of cards to swap
+    LDA $fe
+    ; mod 128 (close to 81)
+    AND #$7f
+    ; just throw away random numbers out of range
+    CMP #81
+; warning, possible infinite loop, if random numbers are unlucky!
+    BPL swap_cards 
+    
+    STA $63
+ 
+    LDX $62
+    LDA $10,X  ; 61 := deck[62]
+    STA $61
+
+    LDX $63
+    LDA $10,X  ; deck[62] := decl[63] 
+    LDX $62
+    STA $10,X
+
+    LDA $61   ; deck[63] := 61
+    LDX $63
+    STA $10,X
+  
+  swap_card_continue:
+  LDA $62
+  ADC #1
+  STA $62
+  ; TODO; This should be 81 for a full shuffle (if we ever show >12 cards) ; do not submit
+  CMP  $c0
+  BNE swap_cards
+  swap_card_done:
+RTS 
+
+print_deck: 
+  ; $74 holds deck position
+  LDA #0
+  STA $74;
+
+  LDY #0 ; Y is drawing cursor
+  ; start drawing at 0200, top left corner of display
+  LDA #2
+  STA $71
+
+  print_card: 
+    ; todo: use multiple pixels, to properly display 7bits of data per card.  
+    LDA $74; pass card index to print_one_card_fancy
+    STA $1
+    jsr print_one_card_fancy
+    ; while
+    
+    INC $74
+    LDA $74
+    ;loop if  < number of cards
+    ; TODO: 12 or 81, depending no printing style
+    CMP #12 ;(not hex); number of cards to print on screen.
+    BMI print_card  ; branch on minus, i.e., X < 81
+RTS
+
+print_one_card_core:
+    ; SIDE-EFFECTS: writes to X, Y, A
+    ; Increments Y and $71 to position of next card to draw
+    ; print each 2-bit attribute as a color
+    ;$5 saves unpacked card
+    LDX $74; deck position
+    LDA $10, X   ; read card from deck
+
+    ; UNPACK CARD here, if card is packed in deck
+      STA $3 ; input for unpack_card
+      jsr unpack_card
+
+      LDA $3; recover card id
+      TAX
+  
+      LDA $4 ; output from unpack_card
+
+    STA $5 ; save unpacked card
+
+    AND #3 ; 00000011
+    STA $6
+
+
+    jsr print_offset
+
+    jsr inc_cursor
+
+    LDA $5  ; read unpacked card
+    ; read 2 bits from mask 00001100
+    AND #$0c;     
+    ROR
+    ROR
+    STA $6
+    jsr print_offset
+ 
+    jsr inc_cursor
+
+    LDA $5 ; read unpacked card from deck 
+    AND #$30;  00110000
+    ROR
+    ROR
+    ROR
+    ROR
+    STA $6
+    jsr print_offset
+
+    jsr inc_cursor
+
+    LDA $5
+    AND #$c0;  11000000
+    ROR
+    ROR
+    ROR
+    ROR
+    ROR
+    ROR
+    STA $6
+    jsr print_offset
+    jsr inc_cursor
+
+RTS
+
+inc_cursor:
+  LDA $70
+  ADC #$01 ;
+  STA $70
+  ; if carry (off page), increment page  
+  ; need to guarantee labels are not duplicates, as easy6502 won't warn me :-(     
+  BCC inc_cursor_END 
+     jsr inc_display_page
+  inc_cursor_END:
+  RTS
+
+space_to_next_card_spot:
+  ; Y += spacing, to next region for printing a card
+  LDA $70
+  ADC #$8
+  STA $70
+
+  ; if carry (off page), increment page  
+  ; need to guarantee labels are not duplicates, as easy6502 won't warn me :-(     
+  BCC space_to_next_card_spot_END 
+   jsr inc_display_page
+  space_to_next_card_spot_END:
+RTS
+
+print_one_card_simple:
+    jsr print_one_card_core
+    jsr space_to_next_card_spot
+
+print_one_card_fancy:
+  ; INPUTS: $1 table position
+  ; static MEMORY: $70,$71  used for drawing page. (Shared with print_one_card_simple!)
+  ; $75 used for saving cursor computation when calling to other functions
+  ; $76 for saving pixel-col
+  ; $77 for local variable during multiplication
+  ; SIDE EFFECTS:
+
+  ; col is position div 4 (since div 4 is easier than 3)
+  ; row is position mod 4 
+  ; $1,$2 are used by divide
+
+  LDA $1
+  STA $3 ; save position to $3 for later 
+  STA $2
+  LDA #4
+  STA $1
+  jsr divide  ; $2 has quotient (col), $1 has remainder (row)
+ 
+  LDA #2  ; init drawing cursor
+  STA $71  ; HSB
+
+  LDA #0
+  STA $70  ; LSB
+
+  move_cursor_to_col:
+  ;4 + 8 * col
+  LDA $2
+             ; fortunately, this math can't change drawing page
+
+  ASL ; multiply by 2^2
+  ASL
+  ASL
+  ADC #4
+  STA  $76
+
+  move_cursor_to_row:
+               ; this math can change drawing page
+  LDA $1 ; card row
+  ;(1 + 5 * row) * $20 (rowsize)  => 4 + 4 * 2^7
+  ASL   
+  STA $77  ; 2*row
+  ASL
+  ADC $77
+  ADC #1  ; won't change page.
+
+  ASL
+
+  STA $75
+  jsr asl_display_page
+  LDA $75
+  ASL
+
+     BCC print_one_card_fancy_5
+         STA $75
+         jsr inc_display_page
+         LDA $75
+      print_one_card_fancy_5:
+
+  STA $75
+  jsr asl_display_page
+  LDA $75
+  ASL
+
+  ; once A is at risk of exceeding 2^8, need to check carry flag 
+     BCC print_one_card_fancy_0
+         STA $75
+         jsr inc_display_page
+         LDA $75
+      print_one_card_fancy_0:
+
+  ; need to double display page if it might be positive!
+  STA $75
+  jsr asl_display_page
+  LDA $75
+ ASL ; muliply by 2, twice  
+       BCC print_one_card_fancy_1
+         STA $75
+         jsr inc_display_page
+         LDA $75
+       print_one_card_fancy_1:
+
+  STA $75
+  jsr asl_display_page
+  LDA $75
+  ASL   
+       BCC print_one_card_fancy_2
+         STA $75
+         jsr inc_display_page
+         LDA $75
+       print_one_card_fancy_2:   
+    
+  ADC $76 ; add pixel-column back
+
+  STA $70
+  ; TODO: draw proper card
+  jsr print_one_card_core
+  
+RTS
+
+print_offset: ; uses $72 (static)
+  ; Workaround bizarre compiler/VM bug, where the first call
+  ; to print_offset_core uses A=1, even though A=0
+  ; The workaround is to notice when this function is 
+  ; called for the first time, and to call print_offset_core
+  ; twice in that case. Ugh.
+  ; been call
+  LDA $72
+  BNE after_print_offset_core
+    jsr print_offset_core
+    ADC #1
+    STA $72
+  after_print_offset_core:
+  jsr print_offset_core
+RTS
+
+print_offset_core: ; prints $6 at offset $71$70, in a prettified color
+  ; compiler bug! first time through this function,
+  ; A is 0, but it acts like 1
+  ; +1 and shift left to get color away from black. TODO: r,g,b
+  LDA $6
+  ASL
+  ASL
+  ADC #$a
+  LDY 0
+  STA ($70),Y    ; print A to display cursor address
+RTS
+
+inc_display_page_indirect:
+  ; call this method every time the drawing cursor is   *incremented*   if carry-flag was set (not cleared).
+  ; to move to next drawing page (with rollover, for fun wraparound),
+
+  ; increment the display page at address $1/$2, by amount 1
+  LDX 0
+  LDA ($1,X)
+  SBC #1 ; -2 to get offset, +1 for inc
+  LDX 0  ; repeat action, buggy adder
+  LDA ($1,X)
+  SBC #1 
+  AND #3  ; mod 4 
+  ; convert 0-1 to 2-5
+  TAX  ; repeat operation, vm bug
+  ADC #2 
+  TXA
+  ADC #2
+  LDX 0
+  STA ($1,X) 
+RTS
+ 
+dec_display_page_indirect:
+  ; call this method every time the drawing cursor is   *incremented*   if carry-flag was set (not cleared).
+  ; to move to next drawing page (with rollover, for fun wraparound),
+
+  ; decrement the display page at address $1/$2, by 1
+  LDX 0
+  LDA ($1,X)
+  ADC #1 ; -2 to get offset, +3 for decrement mod 4 (to avoid underflow)
+  LDX 0  ; repeat action, buggy adder
+  LDA ($1,X)
+  ADC #1
+  AND #3  ; mod 4 
+  ; convert 0-1 to 2-5
+  TAX  ; repeat operation, vm bug
+  ADC #2 
+  TXA
+  ADC #2
+  LDX 0
+  STA ($1,X) 
+RTS
+ 
+
+inc_display_page_cursor: ; inc display_page for drawing (new) cursor
+  LDA #$83
+  STA $1
+  LDA 0
+  STA $2
+  jsr inc_display_page_indirect
+RTS
+
+dec_display_page_cursor: ; inc display_page for drawing cursor
+  LDA #$83
+  STA $1
+  LDA 0
+  STA $2
+  jsr dec_display_page_indirect
+RTS
+
+
+inc_display_page: ; inc display_page for drawing board
+  LDA #$71
+  STA $1 
+  LDA 0
+  STA $2
+  LDA 1
+  STA $3
+  jsr inc_display_page_indirect
+RTS
+
+asl_display_page:
+  LDA $71
+  ASL
+  AND #3  ; mod 4 
+  ; convert 0-1 to 2-5
+  ADC #2   ; should be #2. compiler bug? 
+  ; TODO: warn on overflow
+  STA $71
+RTS
+
+exit: ; end of program
+
